@@ -1,0 +1,87 @@
+import pandas as pd
+from tqdm import tqdm
+
+# Function to process the text and split by '//' delimiter
+def process_text(row_id, text):
+    result = []
+    with tqdm(total=len(text.split('//')) - 1, desc="Splitting text", leave=False) as pbar:
+        while '//' in text:
+            delimiter_index = text.find('//')
+            result.append((row_id, text[:delimiter_index].strip()))
+            text = text[delimiter_index + 2:].strip()
+            pbar.update(1)
+    if text:
+        result.append((row_id, text.strip()))
+    return result
+
+# Function to determine the true result based on keyword occurrences
+def determine_result(row, keyword_mapping):
+    keyword_counts = {code: 0 for code in keyword_mapping.keys()}
+    for code, keywords in tqdm(keyword_mapping.items(), desc="Counting keywords", leave=False):
+        for keyword in keywords:
+            keyword_counts[code] += row['pamoareport_info'].count(keyword)
+    max_count = max(keyword_counts.values())
+    codes_with_max_count = [code for code, count in keyword_counts.items() if count == max_count]
+    if len(codes_with_max_count) > 1:
+        return "Error"
+    elif max_count == 0:
+        return "None"
+    else:
+        return codes_with_max_count[0]
+
+# Keyword mapping from the provided image
+keyword_mapping = {
+    'AP': ['ไม่มี', 'ตัด', 'หมาย', 'เลข', 'เรียก', 'ระงับ', 'ติดต่อ', 'บริการ', 'ปิดเครื่อง'],
+    'BK': ['ไม่', 'ชำระ', 'นัด', 'เลื่อน', 'ผิด', 'เงื่อนไข', 'จ่าย'],
+    'BZ': ['ไม่', 'สาย', 'ว่าง', 'โทร', 'สัญญาณ', 'ตต.', 'ปิด'],
+    'CHC': [],
+    'CT': ['ไม่', 'ชำระ', 'ตัดสาย', 'เลื่อน', 'บ่ายเบี่ยง', 'ขอ', 'จริง'],
+    'FCR': ['รถ'],
+    'LM': ['ไม่อยู่', 'ปลาย', 'รับสาย', 'ฝาก', 'กลับ', 'ข้อความ', 'เบอร์'],
+    'NA': ['ไม่ว่าง', 'สาย', 'ว่าง', 'ไม่รับ', 'ตัด', 'ไม่ได้'],
+    'NTE': ['ตรวจสอบ', 'พบ'],
+    'PD': ['ส่ง', 'จ่าย', 'เข้า', 'แล้ว', 'ชำระ', 'บาท', 'เพิ่ม'],
+    'PP': ['รับสาย', 'แจ้ง', 'วันที่', 'ยอด', 'ชำระ', 'เงิน', 'เหลือ', 'นัด', 'ได้'],
+    'TDR': ['ผ่อน', 'งวด', 'ชำระ', 'ภายใน', 'แบ่ง', 'เริ่ม', 'วัน'],
+    'WN': ['ไม่ใช่', 'แจ้ง', 'รับสาย', 'ใช่', 'รู้จัก', 'ย้าย', 'ผิด']
+}
+
+# Load the data
+file_path = r"excel_file_path"
+df = pd.read_excel(file_path)
+
+# Initialize a list to hold all the new rows
+new_rows = []
+
+# Process each row and collect the results
+for idx, row in tqdm(df.iterrows(), total=df.shape[0], desc="Processing rows"):
+    row_id = row['pamoareport_debtorsystemfromid']
+    note = str(row['pamoareport_info']).lower()
+    processed_texts = process_text(row_id, note)
+    for row_id, text in processed_texts:
+        new_rows.append({
+            'id': row['id'],
+            'pamoareport_debtorsystemfromid': row['pamoareport_debtorsystemfromid'],
+            'pamoareport_reportdate': row['pamoareport_reportdate'],
+            'pamoareport_resultcodefromid': row['pamoareport_resultcodefromid'],
+            'pamoareport_info': text,
+            'pamoareport_oafromid': row['pamoareport_oafromid']
+        })
+
+# Create a new DataFrame from the new rows
+new_df = pd.DataFrame(new_rows)
+
+new_df['pamoareport_resultcodefromid'] = new_df['pamoareport_resultcodefromid'].fillna('NA')
+
+
+# Apply the function to determine the TrueResult for each row
+new_df['AutoResult'] = new_df.apply(determine_result, axis=1, keyword_mapping=keyword_mapping)
+
+# Drop rows where AutoResult is 'None'
+new_df = new_df[new_df['AutoResult'] != 'None']
+
+# Save the updated DataFrame to a new Excel file
+output_file_path = r"excel_file_path_output"
+new_df.to_excel(output_file_path, index=False)
+
+print("new file has been created")
